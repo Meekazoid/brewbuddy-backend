@@ -8,7 +8,7 @@ Eine Progressive Web App (PWA) für Specialty Coffee Enthusiasten mit KI-gestüt
 - ✍️ **Manuelle Eingabe**: Alternative Eingabe-Methode ohne API-Nutzung
 - 🎯 **Intelligente Brew-Empfehlungen**: 
   - Mahlgrad für Fellow Ode Gen2
-  - Optimale Wassertemperatur
+  - Optimale Wassertempe
   - Detaillierte V60 Aufguss-Schritte
   - Basierend auf Aufbereitungsmethode
 - 💾 **Lokale Speicherung**: Alle Daten bleiben auf deinem Gerät
