@@ -1,4 +1,5 @@
 # ☕ Coffee Companion
+# Tiny change to trigger deployment
 
 Eine Progressive Web App (PWA) für Specialty Coffee Enthusiasten mit KI-gestützter Kaffee-Analyse und individuellen Brew-Empfehlungen.
 
