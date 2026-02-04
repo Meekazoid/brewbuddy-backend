@@ -1,59 +1,18 @@
 // ==========================================
-// BREWBUDDY BACKEND SERVER V2
-// Mit Token + Device-Binding
+// BREWBUDDY BACKEND SERVER V3
+// Mit manuellem Token-System
 // ==========================================
 
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { v4 as uuidv4 } from 'uuid';
 import rateLimit from 'express-rate-limit';
-import crypto from 'crypto';
 import { initDatabase, getDatabase, queries } from './db/database.js';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-
-// ==========================================
-// HELPER: Generate Device ID
-// ==========================================
-
-/**
- * Generiert eine eindeutige Device-ID basierend auf Browser-Fingerprint
- * Falls der Client eine device_id sendet, verwenden wir diese
- */
-function generateDeviceId(userAgent, ip, clientDeviceId = null) {
-    if (clientDeviceId) {
-        return clientDeviceId;
-    }
-    
-    // Fallback: Hash aus UserAgent + IP
-    const fingerprint = `${userAgent}-${ip}`;
-    return crypto
-        .createHash('sha256')
-        .update(fingerprint)
-        .digest('hex')
-        .substring(0, 32);
-}
-
-/**
- * Extrahiert Device-Info für Logging
- */
-function getDeviceInfo(req) {
-    const userAgent = req.headers['user-agent'] || 'unknown';
-    const platform = userAgent.includes('Mobile') ? 'mobile' : 'desktop';
-    const os = userAgent.includes('Mac') ? 'macOS' : 
-               userAgent.includes('Windows') ? 'Windows' :
-               userAgent.includes('Linux') ? 'Linux' : 'unknown';
-    
-    return JSON.stringify({
-        platform,
-        os,
-        userAgent: userAgent.substring(0, 100)
-    });
-}
 
 // ==========================================
 // ENVIRONMENT VALIDATION
@@ -144,95 +103,11 @@ await initDatabase();
 const db = getDatabase();
 
 // ==========================================
-// AUTHENTICATION ENDPOINTS (MIT DEVICE-BINDING)
+// AUTHENTICATION ENDPOINTS
 // ==========================================
 
 /**
- * Register User mit Device-Binding
- * POST /api/auth/register
- * Body: { username, deviceId (optional) }
- */
-app.post('/api/auth/register', async (req, res) => {
-    try {
-        const { username, deviceId: clientDeviceId } = req.body;
-
-        if (!username || username.trim().length < 2) {
-            return res.status(400).json({ 
-                success: false,
-                error: 'Username must be at least 2 characters' 
-            });
-        }
-
-        const count = await queries.getUserCount();
-        if (count >= 10) {
-            return res.status(403).json({ 
-                success: false,
-                error: 'Tester limit reached (10/10)',
-                spotsRemaining: 0
-            });
-        }
-
-        const exists = await queries.usernameExists(username.trim());
-        if (exists) {
-            return res.status(409).json({ 
-                success: false,
-                error: 'Username already taken' 
-            });
-        }
-
-        // Device-ID generieren
-        const deviceId = generateDeviceId(
-            req.headers['user-agent'], 
-            req.ip,
-            clientDeviceId
-        );
-        
-        // Prüfen ob Device bereits registriert
-        const deviceTaken = await queries.deviceExists(deviceId);
-        if (deviceTaken) {
-            return res.status(409).json({
-                success: false,
-                error: 'This device is already registered to another account',
-                deviceId: deviceId
-            });
-        }
-
-        const token = uuidv4();
-        const deviceInfo = getDeviceInfo(req);
-        
-        const userId = await queries.createUser(
-            username.trim(), 
-            token,
-            deviceId,
-            deviceInfo
-        );
-
-        const newCount = await queries.getUserCount();
-
-        console.log(`✅ User registered: ${username} (device: ${deviceId.substring(0, 8)}...)`);
-
-        res.json({
-            success: true,
-            user: {
-                id: userId,
-                username: username.trim(),
-                token: token,
-                deviceId: deviceId
-            },
-            spotsRemaining: 10 - newCount
-        });
-
-    } catch (error) {
-        console.error('Register error:', error.message);
-        res.status(500).json({ 
-            success: false,
-            error: 'Server error' 
-        });
-    }
-});
-
-/**
- * Validate Token mit Device-Check
+ * Validate Token with Device-Binding
  * GET /api/auth/validate?token=xxx&deviceId=xxx
  */
 app.get('/api/auth/validate', async (req, res) => {
@@ -246,20 +121,38 @@ app.get('/api/auth/validate', async (req, res) => {
             });
         }
 
-        // Device-ID aus Request extrahieren falls nicht übergeben
-        const actualDeviceId = deviceId || generateDeviceId(
-            req.headers['user-agent'], 
-            req.ip
-        );
+        if (!deviceId) {
+            return res.status(400).json({ 
+                success: false,
+                error: 'Device ID required' 
+            });
+        }
 
-        const user = await queries.getUserByToken(token, actualDeviceId);
+        // Hole User mit Token
+        const user = await queries.getUserByToken(token);
 
         if (!user) {
             return res.status(401).json({ 
                 success: false,
                 valid: false,
-                error: 'Invalid token or device mismatch' 
+                error: 'Invalid token' 
             });
+        }
+
+        // Device-Binding Check
+        if (user.device_id) {
+            // Device bereits gebunden
+            if (user.device_id !== deviceId) {
+                return res.status(403).json({
+                    success: false,
+                    valid: false,
+                    error: 'This token is already bound to another device'
+                });
+            }
+        } else {
+            // Erstes Gerät - binde es jetzt
+            await queries.bindDevice(user.id, deviceId, getDeviceInfo(req));
+            console.log(`🔗 Device bound: User ${user.username} → Device ${deviceId.substring(0, 8)}...`);
         }
 
         // Update last login
@@ -271,7 +164,7 @@ app.get('/api/auth/validate', async (req, res) => {
             user: {
                 id: user.id,
                 username: user.username,
-                deviceId: user.device_id,
+                deviceId: user.device_id || deviceId,
                 createdAt: user.created_at
             }
         });
@@ -285,6 +178,25 @@ app.get('/api/auth/validate', async (req, res) => {
     }
 });
 
+/**
+ * Helper: Get Device Info
+ */
+function getDeviceInfo(req) {
+    const userAgent = req.headers['user-agent'] || 'unknown';
+    const platform = userAgent.includes('Mobile') ? 'mobile' : 'desktop';
+    const os = userAgent.includes('Mac') ? 'macOS' : 
+               userAgent.includes('Windows') ? 'Windows' :
+               userAgent.includes('Linux') ? 'Linux' : 
+               userAgent.includes('Android') ? 'Android' :
+               userAgent.includes('iPhone') ? 'iOS' : 'unknown';
+    
+    return JSON.stringify({
+        platform,
+        os,
+        userAgent: userAgent.substring(0, 100)
+    });
+}
+
 // ==========================================
 // COFFEE DATA ENDPOINTS
 // ==========================================
@@ -293,23 +205,26 @@ app.get('/api/coffees', async (req, res) => {
     try {
         const { token, deviceId } = req.query;
 
-        if (!token) {
+        if (!token || !deviceId) {
             return res.status(401).json({ 
                 success: false,
-                error: 'Unauthorized' 
+                error: 'Token and Device ID required' 
             });
         }
 
-        const actualDeviceId = deviceId || generateDeviceId(
-            req.headers['user-agent'], 
-            req.ip
-        );
-
-        const user = await queries.getUserByToken(token, actualDeviceId);
+        const user = await queries.getUserByToken(token);
         if (!user) {
             return res.status(401).json({ 
                 success: false,
-                error: 'Invalid token or device mismatch' 
+                error: 'Invalid token' 
+            });
+        }
+
+        // Device check
+        if (user.device_id && user.device_id !== deviceId) {
+            return res.status(403).json({
+                success: false,
+                error: 'Device mismatch'
             });
         }
 
@@ -341,23 +256,26 @@ app.post('/api/coffees', async (req, res) => {
     try {
         const { token, deviceId, coffees } = req.body;
 
-        if (!token) {
+        if (!token || !deviceId) {
             return res.status(401).json({ 
                 success: false,
-                error: 'Unauthorized' 
+                error: 'Token and Device ID required' 
             });
         }
 
-        const actualDeviceId = deviceId || generateDeviceId(
-            req.headers['user-agent'], 
-            req.ip
-        );
-
-        const user = await queries.getUserByToken(token, actualDeviceId);
+        const user = await queries.getUserByToken(token);
         if (!user) {
             return res.status(401).json({ 
                 success: false,
-                error: 'Invalid token or device mismatch' 
+                error: 'Invalid token' 
+            });
+        }
+
+        // Device check
+        if (user.device_id && user.device_id !== deviceId) {
+            return res.status(403).json({
+                success: false,
+                error: 'Device mismatch'
             });
         }
 
@@ -384,13 +302,44 @@ app.post('/api/coffees', async (req, res) => {
 });
 
 // ==========================================
-// ANTHROPIC API PROXY
+// ANTHROPIC API PROXY (PROTECTED)
 // ==========================================
 
 app.post('/api/analyze-coffee', aiLimiter, async (req, res) => {
     try {
-        const { imageData, mediaType } = req.body;
+        const { imageData, mediaType, token, deviceId } = req.body;
 
+        // Token und Device-ID prüfen
+        if (!token || !deviceId) {
+            return res.status(401).json({ 
+                success: false,
+                error: 'Authentication required. Please enter your access code in Settings.' 
+            });
+        }
+
+        // User validieren
+        const user = await queries.getUserByToken(token);
+        if (!user) {
+            return res.status(401).json({ 
+                success: false,
+                error: 'Invalid access code. Please check your code in Settings.' 
+            });
+        }
+
+        // Device-Binding prüfen
+        if (user.device_id) {
+            if (user.device_id !== deviceId) {
+                return res.status(403).json({
+                    success: false,
+                    error: 'This access code is already used on another device.'
+                });
+            }
+        } else {
+            // Erstes Gerät - binde es
+            await queries.bindDevice(user.id, deviceId, getDeviceInfo(req));
+        }
+
+        // Image-Daten prüfen
         if (!imageData) {
             return res.status(400).json({ 
                 success: false,
@@ -398,6 +347,7 @@ app.post('/api/analyze-coffee', aiLimiter, async (req, res) => {
             });
         }
 
+        // AI-Analyse durchführen
         const response = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
             headers: {
@@ -485,7 +435,7 @@ app.get('/api/health', (req, res) => {
     res.json({ 
         status: 'ok',
         app: 'brewbuddy',
-        version: '2.0.0-device-binding',
+        version: '3.0.0-manual-token',
         timestamp: new Date().toISOString(),
         uptime: process.uptime(),
         environment: process.env.NODE_ENV || 'development'
@@ -516,9 +466,9 @@ app.use((err, req, res, next) => {
 // ==========================================
 
 app.listen(PORT, () => {
-    console.log(`🚀 BrewBuddy API v2.0 running on port ${PORT}`);
+    console.log(`🚀 BrewBuddy API v3.0 running on port ${PORT}`);
     console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`🔒 CORS enabled for: ${allowedOrigins.join(', ')}`);
     console.log(`🛡️ Rate limiting active`);
-    console.log(`🔐 Device-Binding: ENABLED`);
+    console.log(`🔐 Manual Token System: ENABLED`);
 });
