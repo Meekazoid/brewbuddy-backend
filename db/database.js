@@ -1,6 +1,6 @@
 // ==========================================
-// BREWBUDDY DATABASE MODULE
-// Supports both SQLite (dev) and PostgreSQL (production)
+// BREWBUDDY DATABASE MODULE V2
+// Mit Device-Binding Support
 // ==========================================
 
 import pg from 'pg';
@@ -17,13 +17,11 @@ let dbType = null;
 
 /**
  * Initialize database connection
- * Uses PostgreSQL in production (Railway), SQLite in development
  */
 export async function initDatabase() {
     const isProduction = process.env.NODE_ENV === 'production';
     const hasDatabaseUrl = !!process.env.DATABASE_URL;
     
-    // Use PostgreSQL in production if DATABASE_URL is set
     if (isProduction && hasDatabaseUrl) {
         console.log('📊 Initializing PostgreSQL database...');
         dbType = 'postgresql';
@@ -31,11 +29,10 @@ export async function initDatabase() {
         const pool = new Pool({
             connectionString: process.env.DATABASE_URL,
             ssl: {
-                rejectUnauthorized: false // Required for Railway
+                rejectUnauthorized: false
             }
         });
         
-        // Test connection
         try {
             await pool.query('SELECT NOW()');
             console.log('✅ PostgreSQL connection successful');
@@ -44,7 +41,6 @@ export async function initDatabase() {
             throw err;
         }
         
-        // Create wrapper for consistent API
         db = {
             pool,
             async exec(sql) {
@@ -72,13 +68,10 @@ export async function initDatabase() {
             }
         };
         
-        // Create tables for PostgreSQL
         await createPostgreSQLTables();
-        
         console.log('✅ PostgreSQL database initialized');
         
     } else {
-        // Use SQLite for development
         console.log('📊 Initializing SQLite database...');
         dbType = 'sqlite';
         
@@ -90,7 +83,6 @@ export async function initDatabase() {
         });
 
         await createSQLiteTables();
-
         console.log('✅ SQLite database initialized:', dbPath);
     }
     
@@ -98,7 +90,7 @@ export async function initDatabase() {
 }
 
 /**
- * Create PostgreSQL tables
+ * Create PostgreSQL tables with device binding
  */
 async function createPostgreSQLTables() {
     await db.exec(`
@@ -106,6 +98,9 @@ async function createPostgreSQLTables() {
             id SERIAL PRIMARY KEY,
             username TEXT NOT NULL UNIQUE,
             token TEXT NOT NULL UNIQUE,
+            device_id TEXT UNIQUE,
+            device_info TEXT,
+            last_login_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -119,12 +114,13 @@ async function createPostgreSQLTables() {
 
         CREATE INDEX IF NOT EXISTS idx_coffees_user_id ON coffees(user_id);
         CREATE INDEX IF NOT EXISTS idx_users_token ON users(token);
+        CREATE INDEX IF NOT EXISTS idx_users_device_id ON users(device_id);
         CREATE INDEX IF NOT EXISTS idx_coffees_user_created ON coffees(user_id, created_at DESC);
     `);
 }
 
 /**
- * Create SQLite tables
+ * Create SQLite tables with device binding
  */
 async function createSQLiteTables() {
     await db.exec(`
@@ -132,6 +128,9 @@ async function createSQLiteTables() {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL UNIQUE,
             token TEXT NOT NULL UNIQUE,
+            device_id TEXT UNIQUE,
+            device_info TEXT,
+            last_login_at DATETIME,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -145,13 +144,11 @@ async function createSQLiteTables() {
 
         CREATE INDEX IF NOT EXISTS idx_coffees_user_id ON coffees(user_id);
         CREATE INDEX IF NOT EXISTS idx_users_token ON users(token);
+        CREATE INDEX IF NOT EXISTS idx_users_device_id ON users(device_id);
         CREATE INDEX IF NOT EXISTS idx_coffees_user_created ON coffees(user_id, created_at DESC);
     `);
 }
 
-/**
- * Get database instance
- */
 export function getDatabase() {
     if (!db) {
         throw new Error('Database not initialized. Call initDatabase() first.');
@@ -159,16 +156,10 @@ export function getDatabase() {
     return db;
 }
 
-/**
- * Get database type
- */
 export function getDatabaseType() {
     return dbType;
 }
 
-/**
- * Close database connection
- */
 export async function closeDatabase() {
     if (db && dbType === 'postgresql') {
         await db.pool.end();
@@ -182,59 +173,110 @@ export async function closeDatabase() {
 }
 
 /**
- * Query helpers that work with both databases
+ * Query helpers mit Device-Binding
  */
 export const queries = {
     /**
-     * Get user by token
+     * Get user by token (prüft auch device_id)
      */
-    async getUserByToken(token) {
+    async getUserByToken(token, deviceId = null) {
         const db = getDatabase();
         if (dbType === 'postgresql') {
-            return db.get(
-                'SELECT id, username, created_at FROM users WHERE token = $1', 
-                [token]
-            );
+            if (deviceId) {
+                // Prüfe token UND device_id
+                return db.get(
+                    'SELECT id, username, device_id, created_at FROM users WHERE token = $1 AND device_id = $2', 
+                    [token, deviceId]
+                );
+            } else {
+                // Nur token prüfen (Legacy-Support)
+                return db.get(
+                    'SELECT id, username, device_id, created_at FROM users WHERE token = $1', 
+                    [token]
+                );
+            }
         } else {
-            return db.get(
-                'SELECT id, username, created_at FROM users WHERE token = ?', 
-                [token]
-            );
+            if (deviceId) {
+                return db.get(
+                    'SELECT id, username, device_id, created_at FROM users WHERE token = ? AND device_id = ?', 
+                    [token, deviceId]
+                );
+            } else {
+                return db.get(
+                    'SELECT id, username, device_id, created_at FROM users WHERE token = ?', 
+                    [token]
+                );
+            }
         }
     },
     
     /**
-     * Create new user
+     * Create new user mit device binding
      */
-    async createUser(username, token) {
+    async createUser(username, token, deviceId, deviceInfo) {
         const db = getDatabase();
         if (dbType === 'postgresql') {
             const result = await db.get(
-                'INSERT INTO users (username, token) VALUES ($1, $2) RETURNING id',
-                [username, token]
+                `INSERT INTO users (username, token, device_id, device_info, last_login_at) 
+                 VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP) 
+                 RETURNING id`,
+                [username, token, deviceId, deviceInfo]
             );
             return result.id;
         } else {
             const result = await db.run(
-                'INSERT INTO users (username, token) VALUES (?, ?)',
-                [username, token]
+                `INSERT INTO users (username, token, device_id, device_info, last_login_at) 
+                 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+                [username, token, deviceId, deviceInfo]
             );
             return result.lastID;
         }
     },
     
     /**
-     * Get user count
+     * Update last login time
      */
+    async updateLastLogin(userId) {
+        const db = getDatabase();
+        if (dbType === 'postgresql') {
+            await db.run(
+                'UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = $1',
+                [userId]
+            );
+        } else {
+            await db.run(
+                'UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?',
+                [userId]
+            );
+        }
+    },
+    
+    /**
+     * Check if device is already registered
+     */
+    async deviceExists(deviceId) {
+        const db = getDatabase();
+        if (dbType === 'postgresql') {
+            const result = await db.get(
+                'SELECT id FROM users WHERE device_id = $1',
+                [deviceId]
+            );
+            return !!result;
+        } else {
+            const result = await db.get(
+                'SELECT id FROM users WHERE device_id = ?',
+                [deviceId]
+            );
+            return !!result;
+        }
+    },
+    
     async getUserCount() {
         const db = getDatabase();
         const result = await db.get('SELECT COUNT(*) as count FROM users');
         return result.count;
     },
     
-    /**
-     * Check if username exists (case-insensitive)
-     */
     async usernameExists(username) {
         const db = getDatabase();
         if (dbType === 'postgresql') {
@@ -252,9 +294,6 @@ export const queries = {
         }
     },
     
-    /**
-     * Get all coffees for a user
-     */
     async getUserCoffees(userId) {
         const db = getDatabase();
         if (dbType === 'postgresql') {
@@ -270,9 +309,6 @@ export const queries = {
         }
     },
     
-    /**
-     * Save coffee for user
-     */
     async saveCoffee(userId, data) {
         const db = getDatabase();
         if (dbType === 'postgresql') {
@@ -290,9 +326,6 @@ export const queries = {
         }
     },
     
-    /**
-     * Delete all coffees for a user
-     */
     async deleteUserCoffees(userId) {
         const db = getDatabase();
         if (dbType === 'postgresql') {
