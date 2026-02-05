@@ -309,35 +309,17 @@ app.post('/api/analyze-coffee', aiLimiter, async (req, res) => {
     try {
         const { imageData, mediaType, token, deviceId } = req.body;
 
-        // Token und Device-ID prüfen
+        // Sicherheitscheck
         if (!token || !deviceId) {
-            return res.status(401).json({ 
-                success: false,
-                error: 'Authentication required. Please enter your access code in Settings.' 
-            });
+            return res.status(401).json({ success: false, error: 'Authentifizierung erforderlich.' });
         }
 
-        // User validieren
-        const user = await queries.getUserByToken(token);
+        const user = await queries.getUserByToken(token, deviceId);
         if (!user) {
-            return res.status(401).json({ 
-                success: false,
-                error: 'Invalid access code. Please check your code in Settings.' 
-            });
+            return res.status(403).json({ success: false, error: 'Token ungültig oder Gerät nicht verknüpft.' });
         }
 
-        // Device-Binding prüfen
-        if (user.device_id) {
-            if (user.device_id !== deviceId) {
-                return res.status(403).json({
-                    success: false,
-                    error: 'This access code is already used on another device.'
-                });
-            }
-        } else {
-            // Erstes Gerät - binde es
-            await queries.bindDevice(user.id, deviceId, getDeviceInfo(req));
-        }
+        console.log(`📸 Analyse gestartet für User: ${user.username}`);
 
         // Image-Daten prüfen
         if (!imageData) {
