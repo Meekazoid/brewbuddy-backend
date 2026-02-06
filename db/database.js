@@ -1,6 +1,6 @@
 // ==========================================
-// BREWBUDDY DATABASE MODULE V2
-// Mit Device-Binding Support
+// BREWBUDDY DATABASE MODULE V3
+// Mit Device-Binding + Grinder Preference Support
 // ==========================================
 
 import pg from 'pg';
@@ -90,7 +90,7 @@ export async function initDatabase() {
 }
 
 /**
- * Create PostgreSQL tables with device binding
+ * Create PostgreSQL tables with device binding and grinder preference
  */
 async function createPostgreSQLTables() {
     // Schritt 1: Tabellen erstellen
@@ -117,11 +117,11 @@ async function createPostgreSQLTables() {
             ALTER TABLE users 
             ADD COLUMN IF NOT EXISTS device_id TEXT,
             ADD COLUMN IF NOT EXISTS device_info TEXT,
-            ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP;
+            ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP,
+            ADD COLUMN IF NOT EXISTS grinder_preference TEXT DEFAULT 'fellow';
         `);
     } catch (err) {
-        // Spalten existieren schon, das ist OK
-        console.log('Note: device columns may already exist');
+        console.log('Note: columns may already exist');
     }
     
     // Schritt 3: Indices erstellen (NACH den Spalten!)
@@ -134,7 +134,7 @@ async function createPostgreSQLTables() {
 }
 
 /**
- * Create SQLite tables with device binding
+ * Create SQLite tables with device binding and grinder preference
  */
 async function createSQLiteTables() {
     await db.exec(`
@@ -145,6 +145,7 @@ async function createSQLiteTables() {
             device_id TEXT UNIQUE,
             device_info TEXT,
             last_login_at DATETIME,
+            grinder_preference TEXT DEFAULT 'fellow',
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -187,7 +188,7 @@ export async function closeDatabase() {
 }
 
 /**
- * Query helpers mit Device-Binding
+ * Query helpers mit Device-Binding und Grinder Preference
  */
 export const queries = {
     /**
@@ -197,27 +198,25 @@ export const queries = {
         const db = getDatabase();
         if (dbType === 'postgresql') {
             if (deviceId) {
-                // Prüfe token UND device_id
                 return db.get(
-                    'SELECT id, username, device_id, created_at FROM users WHERE token = $1 AND device_id = $2', 
+                    'SELECT id, username, device_id, grinder_preference, created_at FROM users WHERE token = $1 AND device_id = $2', 
                     [token, deviceId]
                 );
             } else {
-                // Nur token prüfen (Legacy-Support)
                 return db.get(
-                    'SELECT id, username, device_id, created_at FROM users WHERE token = $1', 
+                    'SELECT id, username, device_id, grinder_preference, created_at FROM users WHERE token = $1', 
                     [token]
                 );
             }
         } else {
             if (deviceId) {
                 return db.get(
-                    'SELECT id, username, device_id, created_at FROM users WHERE token = ? AND device_id = ?', 
+                    'SELECT id, username, device_id, grinder_preference, created_at FROM users WHERE token = ? AND device_id = ?', 
                     [token, deviceId]
                 );
             } else {
                 return db.get(
-                    'SELECT id, username, device_id, created_at FROM users WHERE token = ?', 
+                    'SELECT id, username, device_id, grinder_preference, created_at FROM users WHERE token = ?', 
                     [token]
                 );
             }
@@ -225,25 +224,63 @@ export const queries = {
     },
     
     /**
-     * Create new user mit device binding
+     * Create new user mit device binding und default grinder
      */
     async createUser(username, token, deviceId, deviceInfo) {
         const db = getDatabase();
         if (dbType === 'postgresql') {
             const result = await db.get(
-                `INSERT INTO users (username, token, device_id, device_info, last_login_at) 
-                 VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP) 
+                `INSERT INTO users (username, token, device_id, device_info, grinder_preference, last_login_at) 
+                 VALUES ($1, $2, $3, $4, 'fellow', CURRENT_TIMESTAMP) 
                  RETURNING id`,
                 [username, token, deviceId, deviceInfo]
             );
             return result.id;
         } else {
             const result = await db.run(
-                `INSERT INTO users (username, token, device_id, device_info, last_login_at) 
-                 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+                `INSERT INTO users (username, token, device_id, device_info, grinder_preference, last_login_at) 
+                 VALUES (?, ?, ?, ?, 'fellow', CURRENT_TIMESTAMP)`,
                 [username, token, deviceId, deviceInfo]
             );
             return result.lastID;
+        }
+    },
+    
+    /**
+     * Update grinder preference
+     */
+    async updateGrinderPreference(userId, grinder) {
+        const db = getDatabase();
+        if (dbType === 'postgresql') {
+            await db.run(
+                'UPDATE users SET grinder_preference = $1 WHERE id = $2',
+                [grinder, userId]
+            );
+        } else {
+            await db.run(
+                'UPDATE users SET grinder_preference = ? WHERE id = ?',
+                [grinder, userId]
+            );
+        }
+    },
+    
+    /**
+     * Get grinder preference
+     */
+    async getGrinderPreference(userId) {
+        const db = getDatabase();
+        if (dbType === 'postgresql') {
+            const result = await db.get(
+                'SELECT grinder_preference FROM users WHERE id = $1',
+                [userId]
+            );
+            return result?.grinder_preference || 'fellow';
+        } else {
+            const result = await db.get(
+                'SELECT grinder_preference FROM users WHERE id = ?',
+                [userId]
+            );
+            return result?.grinder_preference || 'fellow';
         }
     },
     
