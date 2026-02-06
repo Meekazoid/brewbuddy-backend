@@ -1,6 +1,6 @@
 // ==========================================
-// BREWBUDDY BACKEND SERVER V3
-// Mit manuellem Token-System
+// BREWBUDDY BACKEND SERVER V4
+// Mit Grinder Preference Support
 // ==========================================
 
 import express from 'express';
@@ -128,7 +128,6 @@ app.get('/api/auth/validate', async (req, res) => {
             });
         }
 
-        // Hole User mit Token
         const user = await queries.getUserByToken(token);
 
         if (!user) {
@@ -139,9 +138,7 @@ app.get('/api/auth/validate', async (req, res) => {
             });
         }
 
-        // Device-Binding Check
         if (user.device_id) {
-            // Device bereits gebunden
             if (user.device_id !== deviceId) {
                 return res.status(403).json({
                     success: false,
@@ -150,12 +147,10 @@ app.get('/api/auth/validate', async (req, res) => {
                 });
             }
         } else {
-            // Erstes Gerät - binde es jetzt
             await queries.bindDevice(user.id, deviceId, getDeviceInfo(req));
             console.log(`🔗 Device bound: User ${user.username} → Device ${deviceId.substring(0, 8)}...`);
         }
 
-        // Update last login
         await queries.updateLastLogin(user.id);
 
         res.json({
@@ -165,6 +160,7 @@ app.get('/api/auth/validate', async (req, res) => {
                 id: user.id,
                 username: user.username,
                 deviceId: user.device_id || deviceId,
+                grinderPreference: user.grinder_preference || 'fellow',
                 createdAt: user.created_at
             }
         });
@@ -198,6 +194,111 @@ function getDeviceInfo(req) {
 }
 
 // ==========================================
+// GRINDER PREFERENCE ENDPOINTS
+// ==========================================
+
+/**
+ * Get Grinder Preference
+ * GET /api/user/grinder?token=xxx&deviceId=xxx
+ */
+app.get('/api/user/grinder', async (req, res) => {
+    try {
+        const { token, deviceId } = req.query;
+
+        if (!token || !deviceId) {
+            return res.status(401).json({ 
+                success: false,
+                error: 'Token and Device ID required' 
+            });
+        }
+
+        const user = await queries.getUserByToken(token);
+        if (!user) {
+            return res.status(401).json({ 
+                success: false,
+                error: 'Invalid token' 
+            });
+        }
+
+        if (user.device_id && user.device_id !== deviceId) {
+            return res.status(403).json({
+                success: false,
+                error: 'Device mismatch'
+            });
+        }
+
+        const grinder = await queries.getGrinderPreference(user.id);
+
+        res.json({ 
+            success: true, 
+            grinder: grinder 
+        });
+
+    } catch (error) {
+        console.error('Get grinder error:', error.message);
+        res.status(500).json({ 
+            success: false,
+            error: 'Server error' 
+        });
+    }
+});
+
+/**
+ * Update Grinder Preference
+ * POST /api/user/grinder
+ */
+app.post('/api/user/grinder', async (req, res) => {
+    try {
+        const { token, deviceId, grinder } = req.body;
+
+        if (!token || !deviceId) {
+            return res.status(401).json({ 
+                success: false,
+                error: 'Token and Device ID required' 
+            });
+        }
+
+        if (!grinder || !['fellow', 'comandante'].includes(grinder)) {
+            return res.status(400).json({ 
+                success: false,
+                error: 'Valid grinder required (fellow or comandante)' 
+            });
+        }
+
+        const user = await queries.getUserByToken(token);
+        if (!user) {
+            return res.status(401).json({ 
+                success: false,
+                error: 'Invalid token' 
+            });
+        }
+
+        if (user.device_id && user.device_id !== deviceId) {
+            return res.status(403).json({
+                success: false,
+                error: 'Device mismatch'
+            });
+        }
+
+        await queries.updateGrinderPreference(user.id, grinder);
+
+        console.log(`⚙️ Grinder updated: ${user.username} → ${grinder}`);
+
+        res.json({ 
+            success: true,
+            grinder: grinder
+        });
+
+    } catch (error) {
+        console.error('Update grinder error:', error.message);
+        res.status(500).json({ 
+            success: false,
+            error: 'Server error' 
+        });
+    }
+});
+
+// ==========================================
 // COFFEE DATA ENDPOINTS
 // ==========================================
 
@@ -220,7 +321,6 @@ app.get('/api/coffees', async (req, res) => {
             });
         }
 
-        // Device check
         if (user.device_id && user.device_id !== deviceId) {
             return res.status(403).json({
                 success: false,
@@ -271,7 +371,6 @@ app.post('/api/coffees', async (req, res) => {
             });
         }
 
-        // Device check
         if (user.device_id && user.device_id !== deviceId) {
             return res.status(403).json({
                 success: false,
@@ -309,7 +408,6 @@ app.post('/api/analyze-coffee', aiLimiter, async (req, res) => {
     try {
         const { imageData, mediaType, token, deviceId } = req.body;
 
-        // Sicherheitscheck
         if (!token || !deviceId) {
             return res.status(401).json({ success: false, error: 'Authentifizierung erforderlich.' });
         }
@@ -321,7 +419,6 @@ app.post('/api/analyze-coffee', aiLimiter, async (req, res) => {
 
         console.log(`📸 Analyse gestartet für User: ${user.username}`);
 
-        // Image-Daten prüfen
         if (!imageData) {
             return res.status(400).json({ 
                 success: false,
@@ -329,7 +426,6 @@ app.post('/api/analyze-coffee', aiLimiter, async (req, res) => {
             });
         }
 
-        // AI-Analyse durchführen
         const response = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
             headers: {
@@ -417,7 +513,7 @@ app.get('/api/health', (req, res) => {
     res.json({ 
         status: 'ok',
         app: 'brewbuddy',
-        version: '3.0.0-manual-token',
+        version: '4.0.0-grinder-preference',
         timestamp: new Date().toISOString(),
         uptime: process.uptime(),
         environment: process.env.NODE_ENV || 'development'
@@ -448,9 +544,9 @@ app.use((err, req, res, next) => {
 // ==========================================
 
 app.listen(PORT, () => {
-    console.log(`🚀 BrewBuddy API v3.0 running on port ${PORT}`);
+    console.log(`🚀 BrewBuddy API v4.0 running on port ${PORT}`);
     console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`🔒 CORS enabled for: ${allowedOrigins.join(', ')}`);
     console.log(`🛡️ Rate limiting active`);
-    console.log(`🔐 Manual Token System: ENABLED`);
+    console.log(`⚙️ Grinder Preference: ENABLED`);
 });
