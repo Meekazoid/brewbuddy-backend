@@ -1,6 +1,6 @@
 // ==========================================
-// BREWBUDDY DATABASE MODULE V3
-// Mit Device-Binding + Grinder Preference Support
+// BREWBUDDY DATABASE MODULE V4
+// Mit Device-Binding + Grinder + Water Hardness Support
 // ==========================================
 
 import pg from 'pg';
@@ -90,7 +90,7 @@ export async function initDatabase() {
 }
 
 /**
- * Create PostgreSQL tables with device binding and grinder preference
+ * Create PostgreSQL tables with device binding, grinder preference, and water hardness
  */
 async function createPostgreSQLTables() {
     // Schritt 1: Tabellen erstellen
@@ -118,7 +118,8 @@ async function createPostgreSQLTables() {
             ADD COLUMN IF NOT EXISTS device_id TEXT,
             ADD COLUMN IF NOT EXISTS device_info TEXT,
             ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP,
-            ADD COLUMN IF NOT EXISTS grinder_preference TEXT DEFAULT 'fellow';
+            ADD COLUMN IF NOT EXISTS grinder_preference TEXT DEFAULT 'fellow',
+            ADD COLUMN IF NOT EXISTS water_hardness DECIMAL(4,1) DEFAULT NULL;
         `);
     } catch (err) {
         console.log('Note: columns may already exist');
@@ -134,7 +135,7 @@ async function createPostgreSQLTables() {
 }
 
 /**
- * Create SQLite tables with device binding and grinder preference
+ * Create SQLite tables with device binding, grinder preference, and water hardness
  */
 async function createSQLiteTables() {
     await db.exec(`
@@ -146,6 +147,7 @@ async function createSQLiteTables() {
             device_info TEXT,
             last_login_at DATETIME,
             grinder_preference TEXT DEFAULT 'fellow',
+            water_hardness REAL DEFAULT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -188,7 +190,7 @@ export async function closeDatabase() {
 }
 
 /**
- * Query helpers mit Device-Binding und Grinder Preference
+ * Query helpers mit Device-Binding, Grinder Preference und Water Hardness
  */
 export const queries = {
     /**
@@ -199,24 +201,24 @@ export const queries = {
         if (dbType === 'postgresql') {
             if (deviceId) {
                 return db.get(
-                    'SELECT id, username, device_id, grinder_preference, created_at FROM users WHERE token = $1 AND device_id = $2', 
+                    'SELECT id, username, device_id, grinder_preference, water_hardness, created_at FROM users WHERE token = $1 AND device_id = $2', 
                     [token, deviceId]
                 );
             } else {
                 return db.get(
-                    'SELECT id, username, device_id, grinder_preference, created_at FROM users WHERE token = $1', 
+                    'SELECT id, username, device_id, grinder_preference, water_hardness, created_at FROM users WHERE token = $1', 
                     [token]
                 );
             }
         } else {
             if (deviceId) {
                 return db.get(
-                    'SELECT id, username, device_id, grinder_preference, created_at FROM users WHERE token = ? AND device_id = ?', 
+                    'SELECT id, username, device_id, grinder_preference, water_hardness, created_at FROM users WHERE token = ? AND device_id = ?', 
                     [token, deviceId]
                 );
             } else {
                 return db.get(
-                    'SELECT id, username, device_id, grinder_preference, created_at FROM users WHERE token = ?', 
+                    'SELECT id, username, device_id, grinder_preference, water_hardness, created_at FROM users WHERE token = ?', 
                     [token]
                 );
             }
@@ -281,6 +283,44 @@ export const queries = {
                 [userId]
             );
             return result?.grinder_preference || 'fellow';
+        }
+    },
+    
+    /**
+     * Update water hardness (NEW)
+     */
+    async updateWaterHardness(userId, waterHardness) {
+        const db = getDatabase();
+        if (dbType === 'postgresql') {
+            await db.run(
+                'UPDATE users SET water_hardness = $1 WHERE id = $2',
+                [waterHardness, userId]
+            );
+        } else {
+            await db.run(
+                'UPDATE users SET water_hardness = ? WHERE id = ?',
+                [waterHardness, userId]
+            );
+        }
+    },
+    
+    /**
+     * Get water hardness (NEW)
+     */
+    async getWaterHardness(userId) {
+        const db = getDatabase();
+        if (dbType === 'postgresql') {
+            const result = await db.get(
+                'SELECT water_hardness FROM users WHERE id = $1',
+                [userId]
+            );
+            return result?.water_hardness || null;
+        } else {
+            const result = await db.get(
+                'SELECT water_hardness FROM users WHERE id = ?',
+                [userId]
+            );
+            return result?.water_hardness || null;
         }
     },
     
