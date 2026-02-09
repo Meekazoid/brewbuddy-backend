@@ -258,10 +258,10 @@ app.post('/api/user/grinder', async (req, res) => {
             });
         }
 
-        if (!grinder || !['fellow', 'comandante'].includes(grinder)) {
+        if (!grinder || !['fellow', 'comandante', 'timemore'].includes(grinder)) {
             return res.status(400).json({ 
                 success: false,
-                error: 'Valid grinder required (fellow or comandante)' 
+                error: 'Valid grinder required (fellow, comandante, or timemore)' 
             });
         }
 
