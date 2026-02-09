@@ -1,6 +1,6 @@
 // ==========================================
-// BREWBUDDY BACKEND SERVER V4
-// Mit Grinder Preference Support
+// BREWBUDDY BACKEND SERVER V5
+// Mit Grinder Preference + Water Hardness Support
 // ==========================================
 
 import express from 'express';
@@ -161,6 +161,7 @@ app.get('/api/auth/validate', async (req, res) => {
                 username: user.username,
                 deviceId: user.device_id || deviceId,
                 grinderPreference: user.grinder_preference || 'fellow',
+                waterHardness: user.water_hardness || null,
                 createdAt: user.created_at
             }
         });
@@ -291,6 +292,120 @@ app.post('/api/user/grinder', async (req, res) => {
 
     } catch (error) {
         console.error('Update grinder error:', error.message);
+        res.status(500).json({ 
+            success: false,
+            error: 'Server error' 
+        });
+    }
+});
+
+// ==========================================
+// WATER HARDNESS ENDPOINTS (NEW)
+// ==========================================
+
+/**
+ * Get Water Hardness
+ * GET /api/user/water-hardness?token=xxx&deviceId=xxx
+ */
+app.get('/api/user/water-hardness', async (req, res) => {
+    try {
+        const { token, deviceId } = req.query;
+
+        if (!token || !deviceId) {
+            return res.status(401).json({ 
+                success: false,
+                error: 'Token and Device ID required' 
+            });
+        }
+
+        const user = await queries.getUserByToken(token);
+        if (!user) {
+            return res.status(401).json({ 
+                success: false,
+                error: 'Invalid token' 
+            });
+        }
+
+        if (user.device_id && user.device_id !== deviceId) {
+            return res.status(403).json({
+                success: false,
+                error: 'Device mismatch'
+            });
+        }
+
+        const waterHardness = await queries.getWaterHardness(user.id);
+
+        res.json({ 
+            success: true, 
+            waterHardness: waterHardness 
+        });
+
+    } catch (error) {
+        console.error('Get water hardness error:', error.message);
+        res.status(500).json({ 
+            success: false,
+            error: 'Server error' 
+        });
+    }
+});
+
+/**
+ * Update Water Hardness
+ * POST /api/user/water-hardness
+ */
+app.post('/api/user/water-hardness', async (req, res) => {
+    try {
+        const { token, deviceId, waterHardness } = req.body;
+
+        if (!token || !deviceId) {
+            return res.status(401).json({ 
+                success: false,
+                error: 'Token and Device ID required' 
+            });
+        }
+
+        if (waterHardness === null || waterHardness === undefined) {
+            return res.status(400).json({ 
+                success: false,
+                error: 'Water hardness value required' 
+            });
+        }
+
+        const hardnessValue = parseFloat(waterHardness);
+        
+        if (isNaN(hardnessValue) || hardnessValue < 0 || hardnessValue > 50) {
+            return res.status(400).json({ 
+                success: false,
+                error: 'Valid water hardness required (0-50 °dH)' 
+            });
+        }
+
+        const user = await queries.getUserByToken(token);
+        if (!user) {
+            return res.status(401).json({ 
+                success: false,
+                error: 'Invalid token' 
+            });
+        }
+
+        if (user.device_id && user.device_id !== deviceId) {
+            return res.status(403).json({
+                success: false,
+                error: 'Device mismatch'
+            });
+        }
+
+        await queries.updateWaterHardness(user.id, hardnessValue);
+
+        console.log(`💧 Water hardness updated: ${user.username} → ${hardnessValue} °dH`);
+
+        res.json({ 
+            success: true,
+            waterHardness: hardnessValue
+        });
+
+    } catch (error) {
+        console.error('Update water hardness error:', error.message);
         res.status(500).json({ 
             success: false,
             error: 'Server error' 
@@ -513,7 +628,7 @@ app.get('/api/health', (req, res) => {
     res.json({ 
         status: 'ok',
         app: 'brewbuddy',
-        version: '4.0.0-grinder-preference',
+        version: '5.0.0-water-hardness',
         timestamp: new Date().toISOString(),
         uptime: process.uptime(),
         environment: process.env.NODE_ENV || 'development'
@@ -544,9 +659,10 @@ app.use((err, req, res, next) => {
 // ==========================================
 
 app.listen(PORT, () => {
-    console.log(`🚀 BrewBuddy API v4.0 running on port ${PORT}`);
+    console.log(`🚀 BrewBuddy API v5.0 running on port ${PORT}`);
     console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`🔒 CORS enabled for: ${allowedOrigins.join(', ')}`);
     console.log(`🛡️ Rate limiting active`);
     console.log(`⚙️ Grinder Preference: ENABLED`);
+    console.log(`💧 Water Hardness: ENABLED`);
 });
