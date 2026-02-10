@@ -83,12 +83,7 @@ export async function initDatabase() {
             sqliteOpen = sqliteModule.open;
         } catch (e) {
             // sqlite3 is optional — only needed in development
-            if (process.env.NODE_ENV !== 'production') {
-                console.error('❌ sqlite3 is required for development. Run: npm install');
-                throw e;
-            }
-            // In production we use PostgreSQL, so sqlite3 not being available is fine
-            console.log('ℹ️  sqlite3 not available — using PostgreSQL in production');
+            console.error('❌ sqlite3 is required for development. Run: npm install');
             throw e;
         }
         
