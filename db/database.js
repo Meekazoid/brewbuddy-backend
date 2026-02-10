@@ -82,6 +82,7 @@ export async function initDatabase() {
         } catch (e) {
             // sqlite3 is optional and only needed when using SQLite (development mode)
             console.error('❌ sqlite3 module not found. Install with: npm install sqlite3 sqlite');
+            console.error('   Error:', e.message);
             throw e;
         }
         
