@@ -5,6 +5,7 @@
 import express from 'express';
 import { authenticateUser } from '../middleware/auth.js';
 import { queries, beginTransaction, commit, rollback } from '../db/database.js';
+import { sanitizeCoffeeData } from '../utils/sanitize.js';
 
 const router = express.Router();
 
@@ -46,7 +47,9 @@ router.post('/', authenticateUser, async (req, res) => {
 
             if (coffees && coffees.length > 0) {
                 for (const coffee of coffees) {
-                    await queries.saveCoffee(req.user.id, JSON.stringify(coffee));
+                    // Sanitize each coffee object before storing
+                    const sanitized = sanitizeCoffeeData(coffee);
+                    await queries.saveCoffee(req.user.id, JSON.stringify(sanitized));
                 }
             }
 

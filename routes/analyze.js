@@ -5,6 +5,7 @@
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import { authenticateUser } from '../middleware/auth.js';
+import { sanitizeCoffeeData } from '../utils/sanitize.js';
 
 const router = express.Router();
 
@@ -88,18 +89,24 @@ Only return valid JSON, no other text.`
 
         const coffeeData = JSON.parse(jsonMatch[0]);
 
+        // Apply defaults before sanitization
+        const withDefaults = {
+            name: coffeeData.name || 'Unknown',
+            origin: coffeeData.origin || 'Unknown',
+            process: coffeeData.process || 'washed',
+            cultivar: coffeeData.cultivar || 'Unknown',
+            altitude: coffeeData.altitude || '1500',
+            roaster: coffeeData.roaster || 'Unknown',
+            tastingNotes: coffeeData.tastingNotes || 'No notes',
+            addedDate: new Date().toISOString()
+        };
+
+        // Sanitize the data before returning
+        const sanitized = sanitizeCoffeeData(withDefaults);
+
         res.json({
             success: true,
-            data: {
-                name: coffeeData.name || 'Unknown',
-                origin: coffeeData.origin || 'Unknown',
-                process: coffeeData.process || 'washed',
-                cultivar: coffeeData.cultivar || 'Unknown',
-                altitude: coffeeData.altitude || '1500',
-                roaster: coffeeData.roaster || 'Unknown',
-                tastingNotes: coffeeData.tastingNotes || 'No notes',
-                addedDate: new Date().toISOString()
-            }
+            data: sanitized
         });
 
     } catch (error) {
