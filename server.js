@@ -162,7 +162,7 @@ async function authenticateUser(req, res, next) {
             if (user.device_id !== deviceId) {
                 return res.status(403).json({
                     success: false,
-                    error: 'Device mismatch'
+                    error: 'This token is already bound to another device'
                 });
             }
         } else {
@@ -489,7 +489,7 @@ app.post('/api/analyze-coffee', aiLimiter, authenticateUser, async (req, res) =>
     try {
         const { imageData, mediaType } = req.body;
 
-        console.log(`📸 Analyse gestartet für User: ${req.user.username}`);
+        console.log(`📸 Analysis started for user: ${req.user.username}`);
 
         if (!imageData) {
             return res.status(400).json({ 
