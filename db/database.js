@@ -27,7 +27,7 @@ const VALID_GRINDERS = [
     'df64_gen2',
 ];
 
-const VALID_METHODS = ['v60', 'chemex', 'aeropress'];
+const VALID_METHODS = ['v60', 'kalita', 'chemex', 'hario_switch', 'aeropress', 'clever', 'french_press'];
 
 // ==========================================
 // DIALECT HELPER

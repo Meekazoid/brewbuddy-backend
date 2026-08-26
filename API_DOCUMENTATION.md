@@ -871,7 +871,7 @@ The `grinder_preference` field accepts the following values:
 
 ## Method Values
 
-The `method_preference` field accepts: `v60`, `chemex`, `aeropress`.
+The `method_preference` field accepts: `v60`, `kalita`, `chemex`, `hario_switch`, `aeropress`, `clever`, `french_press`.
 
 ---
 
