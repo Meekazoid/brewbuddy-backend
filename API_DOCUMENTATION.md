@@ -139,6 +139,7 @@ curl "https://your-backend.railway.app/api/user/grinder?token=YOUR_TOKEN&deviceI
 - `"timemore_c2"` - Timemore Chestnut C2
 - `"1zpresso"` - 1Zpresso
 - `"baratza"` - Baratza Encore
+- `"df64_gen2"` - DF64 Gen 2
 
 **Error Response (401):**
 ```json
@@ -866,6 +867,7 @@ The `grinder_preference` field accepts the following values:
 | `timemore_c2` | Timemore Chestnut C2 |
 | `1zpresso` | 1Zpresso |
 | `baratza` | Baratza Encore |
+| `df64_gen2` | DF64 Gen 2 |
 
 ## Method Values
 

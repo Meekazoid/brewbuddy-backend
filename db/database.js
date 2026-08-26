@@ -24,6 +24,7 @@ const VALID_GRINDERS = [
     'fellow_gen2',    'fellow_gen1',
     'timemore_s3',    'timemore_c2',
     '1zpresso',       'baratza',
+    'df64_gen2',
 ];
 
 const VALID_METHODS = ['v60', 'chemex', 'aeropress'];
